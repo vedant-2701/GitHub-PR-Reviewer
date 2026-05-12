@@ -11,7 +11,9 @@
 - [x] .env.example
 - [x] requirements.txt (pinned versions)
 - [x] Structured logging (logging_config.py)
-- [ ] Diff parser
+- [x] ORM models (Review, FilteredIssue) with relationships + cascade delete
+- [x] app/schemas/diff.py — FileDiff Pydantic schema
+- [x] app/services/diff_parser.py — unified diff → FileDiff (58/58 tests passing)
 - [ ] Static analysis tools (bandit/radon/ast/ESLint)
 - [ ] Groq client + retry logic
 - [ ] LangChain AgentExecutor
@@ -23,15 +25,18 @@
 - [ ] Vercel deployment (frontend)
 
 ## Current Session
-Session 1 complete: Project scaffold + GitHub App setup.
-9/9 tests passing. All files verified present.
+Session 2 complete: ORM models + diff parser.
+58/58 tests passing. All files verified present.
 
 ## Decisions Made This Session
-- Celery result backend (Redis) wired from Session 1 so webhook response includes job_id for tracking
-- docker-compose uses PostgreSQL (not SQLite) to match production environment
-- init_db() uses create_all for now; Alembic is a planned future session (TODO marked in database.py)
-- docs_url and redoc_url disabled in production (environment check in main.py)
-- Celery worker concurrency=1 in docker-compose — matches sequential Groq call design (one PR at a time)
+- verdict stored as PostgreSQL native Enum (VerdictEnum) — DB-level enforcement,
+  Alembic ALTER TYPE migration required if values change. Accepted trade-off.
+- context_lines built from file_content (full file at HEAD), not from diff context lines.
+  Gives controlled ±20 lines independent of GitHub's default ±3 diff context.
+- Empty diff returns FileDiff with empty added_line_numbers (not None).
+  Guardrail will filter all issues for such files — correct behaviour, not parser's concern.
+- Blank context lines in unified diff (bare "" with no prefix) are correctly ignored
+  by the parser and do not advance the line counter. Documented in test comments.
 
 ## Blockers
 None
