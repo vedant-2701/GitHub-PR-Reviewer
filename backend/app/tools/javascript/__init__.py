@@ -16,9 +16,10 @@ from typing import List
 from app.schemas.analysis import ToolResult
 from app.tools.javascript.style import run_eslint
 from app.tools.registry import LanguageAnalyser, register
+from app.utils.language import Language
 
 
-@register("javascript", "typescript")
+@register(Language.JAVASCRIPT, Language.TYPESCRIPT)
 class JavaScriptAnalyser(LanguageAnalyser):
     """
     JavaScript/TypeScript static analysis analyser.
