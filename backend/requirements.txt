@@ -1,0 +1,42 @@
+# ── Web framework ────────────────────────────────────────────────────────────
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12          # required by FastAPI for form data
+
+# ── Config ───────────────────────────────────────────────────────────────────
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# ── Database ─────────────────────────────────────────────────────────────────
+sqlalchemy>=2.0.0
+asyncpg>=0.30.0                   # PostgreSQL async driver (production)
+aiosqlite>=0.20.0                 # SQLite async driver (local dev without Docker)
+alembic>=1.14.0
+
+# ── Task queue ───────────────────────────────────────────────────────────────
+celery[redis]>=5.4.0
+redis>=5.2.0
+
+# ── HTTP client ──────────────────────────────────────────────────────────────
+httpx>=0.28.0
+
+# ── GitHub integration ───────────────────────────────────────────────────────
+PyGithub>=2.5.0
+python-jose[cryptography]>=3.3.0  # HMAC + JWT for GitHub App auth
+
+# ── LLM / Agent (used in later sessions) ────────────────────────────────────
+groq>=0.13.0
+langchain>=0.3.0
+langchain-groq>=0.2.0
+
+# ── Static analysis (used in later sessions) ─────────────────────────────────
+bandit>=1.8.0
+radon>=6.0.0
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-mock>=3.14.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
