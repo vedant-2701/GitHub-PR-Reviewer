@@ -27,6 +27,7 @@ from app.tools.python.complexity import run_radon
 from app.tools.python.security import run_bandit
 from app.tools.python.syntax import run_flake8
 from app.tools.registry import get_analyser, registered_languages
+from app.utils.language import Language
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +40,7 @@ def make_python_diff(
 ) -> FileDiff:
     return FileDiff(
         filename="app/services/foo.py",
-        language="python",
+        language=Language.PYTHON,
         added_line_numbers=added_line_numbers if added_line_numbers is not None else [1],
         raw_diff="@@ -0,0 +1,2 @@\n+def foo():\n+    pass\n",
         context_lines=context_lines,
@@ -52,7 +53,7 @@ def make_js_diff(
 ) -> FileDiff:
     return FileDiff(
         filename="src/app.js",
-        language="javascript",
+        language=Language.JAVASCRIPT,
         added_line_numbers=added_line_numbers if added_line_numbers is not None else [1],
         raw_diff="@@ -0,0 +1 @@\n+const x = 1;\n",
         context_lines=context_lines,
@@ -62,7 +63,7 @@ def make_js_diff(
 def make_unknown_diff() -> FileDiff:
     return FileDiff(
         filename="README.md",
-        language="unknown",
+        language=Language.UNKNOWN,
         added_line_numbers=[1],
         raw_diff="@@ -0,0 +1 @@\n+hello\n",
         context_lines="hello\n",
@@ -120,35 +121,33 @@ def completed_process(stdout: str = "", stderr: str = "", returncode: int = 0):
 # ---------------------------------------------------------------------------
 
 def test_registry_python_returns_python_analyser():
-    analyser = get_analyser("python")
+    analyser = get_analyser(Language.PYTHON)
     assert analyser is not None
     assert type(analyser).__name__ == "PythonAnalyser"
 
 
 def test_registry_javascript_returns_javascript_analyser():
-    analyser = get_analyser("javascript")
+    analyser = get_analyser(Language.JAVASCRIPT)
     assert analyser is not None
     assert type(analyser).__name__ == "JavaScriptAnalyser"
 
 
 def test_registry_typescript_returns_javascript_analyser():
     """typescript shares the JavaScriptAnalyser."""
-    analyser = get_analyser("typescript")
+    analyser = get_analyser(Language.TYPESCRIPT)
     assert analyser is not None
     assert type(analyser).__name__ == "JavaScriptAnalyser"
 
 
 def test_registry_unknown_language_returns_none():
-    assert get_analyser("unknown") is None
-    assert get_analyser("go") is None
-    assert get_analyser("rust") is None
+    assert get_analyser(Language.UNKNOWN) is None
 
 
 def test_registry_registered_languages_includes_expected():
     langs = registered_languages()
-    assert "python" in langs
-    assert "javascript" in langs
-    assert "typescript" in langs
+    assert Language.PYTHON in langs
+    assert Language.JAVASCRIPT in langs
+    assert Language.TYPESCRIPT in langs
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +173,7 @@ async def test_static_analysis_empty_added_line_numbers_returns_empty():
 async def test_static_analysis_unknown_language_returns_empty():
     diff = make_unknown_diff()
     result = await run_static_analysis(diff)
-    assert result.language == "unknown"
+    assert result.language == Language.UNKNOWN
     assert result.results == []
 
 
@@ -215,7 +214,7 @@ async def test_static_analysis_javascript_routes_to_javascript_analyser():
 async def test_static_analysis_typescript_routes_to_javascript_analyser():
     diff = FileDiff(
         filename="src/app.ts",
-        language="typescript",
+        language=Language.TYPESCRIPT,
         added_line_numbers=[1],
         raw_diff="",
         context_lines="const x: number = 1;\n",
@@ -553,18 +552,18 @@ async def test_flake8_empty_output_returns_empty_findings():
 # ---------------------------------------------------------------------------
 
 def test_tool_findings_has_findings_false_when_empty():
-    findings = ToolFindings(filename="foo.py", language="python", results=[])
+    findings = ToolFindings(filename="foo.py", language=Language.PYTHON, results=[])
     assert not findings.has_findings()
 
 
 def test_tool_findings_has_findings_true_when_results_have_findings():
     result = ToolResult(tool_name="bandit", findings=["bandit: B101 finding"], raw_output="", error=None)
-    findings = ToolFindings(filename="foo.py", language="python", results=[result])
+    findings = ToolFindings(filename="foo.py", language=Language.PYTHON, results=[result])
     assert findings.has_findings()
 
 
 def test_tool_findings_all_findings_flat_list():
     r1 = ToolResult(tool_name="bandit", findings=["bandit: A", "bandit: B"], raw_output="", error=None)
     r2 = ToolResult(tool_name="radon", findings=["radon: C"], raw_output="", error=None)
-    findings = ToolFindings(filename="foo.py", language="python", results=[r1, r2])
+    findings = ToolFindings(filename="foo.py", language=Language.PYTHON, results=[r1, r2])
     assert findings.all_findings() == ["bandit: A", "bandit: B", "radon: C"]

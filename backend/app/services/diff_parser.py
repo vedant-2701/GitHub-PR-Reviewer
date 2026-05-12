@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.schemas.diff import FileDiff
+from app.utils.language import Language, detect_language
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +63,6 @@ _ALEMBIC_MIGRATION_RE = re.compile(r"(^|/)migrations/[^/]+\.py$")
 # Hunk header pattern: @@ -old_start,old_count +new_start,new_count @@
 # new_count is optional (defaults to 1 when omitted by git)
 _HUNK_HEADER_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
-
-_EXTENSION_TO_LANGUAGE: dict[str, str] = {
-    ".py": "python",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".ts": "typescript",
-    ".tsx": "typescript",
-}
 
 # If two hunk context windows are within this many lines of each other, merge them.
 _CONTEXT_MERGE_GAP = 10
@@ -149,21 +142,9 @@ def _should_skip(raw_diff: str, filename: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _detect_language(filename: str) -> str:
-    """Detect language from file extension. Returns 'unknown' for unrecognised types."""
-    # Check compound extensions first (.min.js would have been skipped, but
-    # .tsx before .ts matters for correct detection)
-    path = Path(filename)
-    suffix = path.suffix.lower()  # e.g. ".py", ".ts"
-
-    # Handle .jsx and .tsx — Path.suffix gives the last suffix only
-    name_lower = filename.lower()
-    if name_lower.endswith(".jsx"):
-        return "javascript"
-    if name_lower.endswith(".tsx"):
-        return "typescript"
-
-    return _EXTENSION_TO_LANGUAGE.get(suffix, "unknown")
+def _detect_language(filename: str) -> Language:
+    """Detect language — delegates to app.utils.language.detect_language."""
+    return detect_language(filename)
 
 
 # ---------------------------------------------------------------------------

@@ -18,10 +18,11 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from app.schemas.analysis import ToolResult
+from app.utils.language import Language
 
 logger = logging.getLogger(__name__)
 
-_REGISTRY: dict[str, type[LanguageAnalyser]] = {}
+_REGISTRY: dict[Language, type[LanguageAnalyser]] = {}
 
 
 class LanguageAnalyser(ABC):
@@ -59,10 +60,10 @@ class LanguageAnalyser(ABC):
         ...
 
 
-def register(*languages: str):
+def register(*languages: Language):
     """
     Class decorator. Registers a LanguageAnalyser subclass for one or more
-    language strings (as produced by language_router.language_from_filename).
+    Language enums.
 
     Usage:
         @register("python")
@@ -89,7 +90,7 @@ def register(*languages: str):
     return decorator
 
 
-def get_analyser(language: str) -> LanguageAnalyser | None:
+def get_analyser(language: Language) -> LanguageAnalyser | None:
     """
     Return a fresh instance of the registered analyser for this language.
 
@@ -103,7 +104,7 @@ def get_analyser(language: str) -> LanguageAnalyser | None:
     return cls()
 
 
-def registered_languages() -> list[str]:
+def registered_languages() -> list[Language]:
     """Return the list of languages currently in the registry. Used in tests and health checks."""
     return list(_REGISTRY.keys())
 

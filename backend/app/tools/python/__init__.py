@@ -15,9 +15,10 @@ from app.tools.python.complexity import run_radon
 from app.tools.python.security import run_bandit
 from app.tools.python.syntax import run_flake8
 from app.tools.registry import LanguageAnalyser, register
+from app.utils.language import Language
 
 
-@register("python")
+@register(Language.PYTHON)
 class PythonAnalyser(LanguageAnalyser):
     """
     Python analyser that runs bandit, radon, and flake8.

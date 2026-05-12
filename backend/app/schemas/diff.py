@@ -11,10 +11,12 @@ Do not add fields here without updating all three consumers.
 from typing import List
 from pydantic import BaseModel
 
+from app.utils.language import Language
+
 
 class FileDiff(BaseModel):
     filename: str
-    language: str  # "python" | "javascript" | "typescript" | "unknown"
+    language: Language
     added_line_numbers: List[int]  # "+" lines only — used by guardrail line validation
     raw_diff: str  # full unified diff text for this file
     context_lines: str  # ±20 lines around changed hunks, merged if close, from file_content

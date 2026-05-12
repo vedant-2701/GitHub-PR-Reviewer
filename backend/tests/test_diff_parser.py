@@ -37,6 +37,7 @@ from app.services.diff_parser import (
     _should_skip,
     parse_file_diff,
 )
+from app.utils.language import Language
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ class TestParseFileDiff:
 
     def test_normal_python_diff_correct_language(self):
         result = parse_file_diff(SIMPLE_PYTHON_DIFF, SIMPLE_FILE_CONTENT, "backend/app/main.py")
-        assert result.language == "python"
+        assert result.language == Language.PYTHON
 
     def test_normal_python_diff_correct_added_line_numbers(self):
         # @@ -10,6 +10,8 @@ means new file starts at line 10
@@ -174,28 +175,28 @@ class TestParseFileDiffSkipReturnsNone:
 
 class TestDetectLanguage:
     def test_py_is_python(self):
-        assert _detect_language("app/main.py") == "python"
+        assert _detect_language("app/main.py") == Language.PYTHON
 
     def test_js_is_javascript(self):
-        assert _detect_language("src/index.js") == "javascript"
+        assert _detect_language("src/index.js") == Language.JAVASCRIPT
 
     def test_jsx_is_javascript(self):
-        assert _detect_language("src/App.jsx") == "javascript"
+        assert _detect_language("src/App.jsx") == Language.JAVASCRIPT
 
     def test_ts_is_typescript(self):
-        assert _detect_language("src/api/client.ts") == "typescript"
+        assert _detect_language("src/api/client.ts") == Language.TYPESCRIPT
 
     def test_tsx_is_typescript(self):
-        assert _detect_language("src/components/Button.tsx") == "typescript"
+        assert _detect_language("src/components/Button.tsx") == Language.TYPESCRIPT
 
     def test_unknown_extension_is_unknown(self):
-        assert _detect_language("Makefile") == "unknown"
+        assert _detect_language("Makefile") == Language.UNKNOWN
 
     def test_sh_is_unknown(self):
-        assert _detect_language("scripts/deploy.sh") == "unknown"
+        assert _detect_language("scripts/deploy.sh") == Language.UNKNOWN
 
     def test_yaml_is_unknown(self):
-        assert _detect_language("docker-compose.yml") == "unknown"
+        assert _detect_language("docker-compose.yml") == Language.UNKNOWN
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +402,6 @@ class TestEmptyDiff:
         """
         result = parse_file_diff("", _make_file_content(10), "app/utils.py")
         assert result is not None
-        assert result.language == "python"
+        assert result.language == Language.PYTHON
         assert result.added_line_numbers == []
         assert result.context_lines == ""

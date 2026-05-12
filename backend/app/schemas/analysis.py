@@ -8,6 +8,8 @@ from typing import List
 
 from pydantic import BaseModel
 
+from app.utils.language import Language
+
 
 class ToolResult(BaseModel):
     """Output from a single static analysis tool run."""
@@ -27,7 +29,7 @@ class ToolFindings(BaseModel):
     """Aggregated static analysis results for one file."""
 
     filename: str
-    language: str  # mirrors FileDiff.language
+    language: Language  # mirrors FileDiff.language
     results: List[ToolResult]
 
     def has_findings(self) -> bool:
