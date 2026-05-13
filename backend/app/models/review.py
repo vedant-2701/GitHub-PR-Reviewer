@@ -1,8 +1,7 @@
 """
 Review ORM model.
 
-Created when the webhook fires (before LLM runs), so verdict/confidence/summary
-are nullable — they are populated once the Celery task completes.
+Created at the end of the Celery task after the pipeline completes.
 
 verdict is stored as a PostgreSQL native Enum. If Verdict values ever change,
 Alembic will need an ALTER TYPE migration. This is intentional — DB-level
@@ -11,7 +10,7 @@ enforcement is worth the migration cost.
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, Float, Integer, String, Text
+from sqlalchemy import DateTime, Enum, Float, Integer, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -31,13 +30,18 @@ class Review(Base):
     pr_number: Mapped[int] = mapped_column(Integer, nullable=False)
     job_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
 
-    # Populated after LLM completes — nullable until then
+    # Populated after LLM completes
     verdict: Mapped[str | None] = mapped_column(
         Enum(VerdictEnum, name="verdict_enum", create_constraint=True),
         nullable=True,
     )
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    files_reviewed: Mapped[list[str]] = mapped_column(JSON, default=list)
+    files_skipped: Mapped[list[str]] = mapped_column(JSON, default=list)
+    total_issues_posted: Mapped[int] = mapped_column(Integer, default=0)
+    total_issues_filtered: Mapped[int] = mapped_column(Integer, default=0)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

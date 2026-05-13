@@ -27,38 +27,12 @@ from typing import Optional
 
 from app.schemas.diff import FileDiff
 from app.utils.language import Language, detect_language
+from app.utils.constants import SKIP_FILENAMES, SKIP_EXTENSIONS, MIGRATION_PATH_PATTERN
 
 logger = logging.getLogger(__name__)
 
-# Files that must never be sent to the LLM.
-# Checked against the full filename (basename) and the full path.
-_SKIP_FILENAMES: frozenset[str] = frozenset(
-    [
-        "package-lock.json",
-        "yarn.lock",
-        "poetry.lock",
-        "Pipfile.lock",
-    ]
-)
-
-_SKIP_EXTENSIONS: frozenset[str] = frozenset(
-    [
-        ".min.js",
-        ".min.css",
-        ".map",
-        ".pb",
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".gif",
-        ".webp",
-        ".svg",
-        ".ico",
-    ]
-)
-
 # Alembic auto-generated migration files: migrations/*.py
-_ALEMBIC_MIGRATION_RE = re.compile(r"(^|/)migrations/[^/]+\.py$")
+_MIGRATION_RE = re.compile(MIGRATION_PATH_PATTERN)
 
 # Hunk header pattern: @@ -old_start,old_count +new_start,new_count @@
 # new_count is optional (defaults to 1 when omitted by git)
@@ -120,15 +94,15 @@ def _should_skip(raw_diff: str, filename: str) -> bool:
     """Return True if this file must not be sent to the LLM."""
     basename = Path(filename).name
 
-    if basename in _SKIP_FILENAMES:
+    if basename in SKIP_FILENAMES:
         return True
 
     # Check compound extensions first (.min.js before .js)
-    for ext in _SKIP_EXTENSIONS:
+    for ext in SKIP_EXTENSIONS:
         if filename.endswith(ext):
             return True
 
-    if _ALEMBIC_MIGRATION_RE.search(filename):
+    if _MIGRATION_RE.search(filename):
         return True
 
     if raw_diff.startswith("Binary files"):
