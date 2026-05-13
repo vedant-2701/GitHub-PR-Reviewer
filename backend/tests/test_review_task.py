@@ -1,9 +1,9 @@
 # tests/test_review_task.py
 """
-Tests for app/tasks/review_task.py.
+Tests for the PR review pipeline (app/pipeline/).
 
 All external calls are mocked:
-- _fetch_pr_files()     (PyGitHub — returns per-file tuples)
+- fetch_pr_files()      (PyGitHub — returns per-file tuples)
 - parse_file_diff()     (diff_parser — called per file, returns Optional[FileDiff])
 - run_static_analysis() (bandit/radon/eslint)
 - review_file()         (Groq)
@@ -29,19 +29,14 @@ Covers:
 """
 import asyncio
 import pytest
-from dataclasses import dataclass
 from typing import List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
 from github import GithubException
 
-from app.tasks.review_task import (
-    _async_pipeline,
-    _build_summary,
-    _compute_overall_verdict,
-    IssueWithPath,
-    FileReviewOutcome,
-)
+from app.pipeline.orchestrator import async_pipeline
+from app.pipeline.types import IssueWithPath, FileReviewOutcome
+from app.pipeline.summary_builder import build_summary, compute_overall_verdict
 from app.models.review import VerdictEnum
 from app.utils.groq_client import GroqRateLimitError
 from app.services.review_agent import ReviewAgentError
@@ -92,7 +87,7 @@ def _make_review_result():
     return rr
 
 
-# Raw file data tuple as returned by _fetch_pr_files
+# Raw file data tuple as returned by fetch_pr_files
 def _file_tuple(filename: str = "app/main.py") -> tuple:
     return (
         f"--- a/{filename}\n+++ b/{filename}\n@@ -1,1 +1,2 @@\n+import os",
@@ -105,25 +100,28 @@ def _file_tuple(filename: str = "app/main.py") -> tuple:
 # Shared fixture
 # ---------------------------------------------------------------------------
 
-PATCH_BASE = "app.tasks.review_task"
+# Patch targets now point to where the names are *used*, not defined.
+ORCHESTRATOR = "app.pipeline.orchestrator"
+FILE_REVIEWER = "app.pipeline.file_reviewer"
+DB_WRITER = "app.pipeline.db_writer"
 
 
 @pytest.fixture
 def pipeline_mocks():
     """
-    Patch all external dependencies of _async_pipeline.
+    Patch all external dependencies of async_pipeline.
     Defaults: single file, parse succeeds, static analysis succeeds,
     review succeeds, guardrail passes one issue, post succeeds.
     """
-    with patch(f"{PATCH_BASE}._fetch_pr_files") as mock_fetch, \
-         patch(f"{PATCH_BASE}.parse_file_diff") as mock_parse, \
-         patch(f"{PATCH_BASE}.run_static_analysis", new_callable=AsyncMock) as mock_analysis, \
-         patch(f"{PATCH_BASE}.review_file", new_callable=AsyncMock) as mock_review, \
-         patch(f"{PATCH_BASE}.guardrail_check") as mock_guardrail, \
-         patch(f"{PATCH_BASE}.log_filtered_issues", new_callable=AsyncMock) as mock_log, \
-         patch(f"{PATCH_BASE}.post_review_comments") as mock_post, \
-         patch(f"{PATCH_BASE}.AsyncSessionLocal") as mock_session_cls, \
-         patch(f"{PATCH_BASE}.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+    with patch(f"{ORCHESTRATOR}.fetch_pr_files") as mock_fetch, \
+         patch(f"{ORCHESTRATOR}.parse_file_diff") as mock_parse, \
+         patch(f"{FILE_REVIEWER}.run_static_analysis", new_callable=AsyncMock) as mock_analysis, \
+         patch(f"{FILE_REVIEWER}.review_file", new_callable=AsyncMock) as mock_review, \
+         patch(f"{FILE_REVIEWER}.guardrail_check") as mock_guardrail, \
+         patch(f"{DB_WRITER}.log_filtered_issues", new_callable=AsyncMock) as mock_log, \
+         patch(f"{ORCHESTRATOR}.post_review_comments") as mock_post, \
+         patch(f"{DB_WRITER}.AsyncSessionLocal") as mock_session_cls, \
+         patch(f"{FILE_REVIEWER}.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
         # Default: one file, successfully parsed
         mock_fetch.return_value = ([_file_tuple("app/main.py")], "abc123")
@@ -178,7 +176,7 @@ class TestAsyncPipelineSuccess:
     def test_all_steps_execute_in_order(self, pipeline_mocks):
         """Happy path: fetch → parse → analyse → review → guardrail → post → db."""
         m = pipeline_mocks
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         m["fetch"].assert_called_once_with("owner/repo", 1)
         m["parse"].assert_called_once()
@@ -195,13 +193,13 @@ class TestAsyncPipelineSuccess:
         raw_diff, file_content, filename = _file_tuple("app/main.py")
         m["fetch"].return_value = ([(raw_diff, file_content, filename)], "sha")
 
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         m["parse"].assert_called_once_with(raw_diff, file_content, filename)
 
     def test_no_sleep_for_single_file(self, pipeline_mocks):
         """asyncio.sleep not called when only one file is reviewed."""
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
         pipeline_mocks["sleep"].assert_not_awaited()
 
     def test_sleep_called_between_files_not_before_first(self, pipeline_mocks):
@@ -224,7 +222,7 @@ class TestAsyncPipelineSuccess:
         ]
         m["review"].side_effect = [_make_review_result(), _make_review_result(), _make_review_result()]
 
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         assert m["sleep"].await_count == 2  # between file 0→1 and 1→2
 
@@ -252,7 +250,7 @@ class TestAsyncPipelineSuccess:
         m["log"].side_effect = AsyncMock(side_effect=lambda **kw: call_order.append("log"))
         m["session"].commit.side_effect = AsyncMock(side_effect=lambda: call_order.append("commit"))
 
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         assert call_order == ["flush", "log", "commit"], (
             f"Expected flush → log → commit, got: {call_order}"
@@ -268,7 +266,7 @@ class TestAsyncPipelineSuccess:
         m = pipeline_mocks
         m["fetch"].return_value = ([], "sha")
 
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         m["parse"].assert_not_called()
         m["review"].assert_not_awaited()
@@ -283,7 +281,7 @@ class TestAsyncPipelineSuccess:
         ], "sha")
         m["parse"].return_value = None  # both skipped
 
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         m["review"].assert_not_awaited()
         m["post"].assert_not_called()
@@ -298,7 +296,7 @@ class TestAsyncPipelineSuccess:
         # First file skipped, second reviewed
         m["parse"].side_effect = [None, _make_file_diff("app/main.py")]
 
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         # Summary passed to post_review_comments should mention the skipped file
         summary_arg = m["post"].call_args.kwargs.get("summary") or m["post"].call_args.args[3]
@@ -315,20 +313,20 @@ class TestGroqRateLimit:
         """GroqRateLimitError from review_file() bubbles up to task (triggers retry)."""
         pipeline_mocks["review"].side_effect = GroqRateLimitError("429")
         with pytest.raises(GroqRateLimitError):
-            asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+            asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
     def test_rate_limit_does_not_post_partial_results(self, pipeline_mocks):
         """When rate limit hits, no GitHub comments are posted."""
         pipeline_mocks["review"].side_effect = GroqRateLimitError("429")
         with pytest.raises(GroqRateLimitError):
-            asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+            asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
         pipeline_mocks["post"].assert_not_called()
 
     def test_rate_limit_does_not_commit_to_db(self, pipeline_mocks):
         """When rate limit hits, no partial DB commit."""
         pipeline_mocks["review"].side_effect = GroqRateLimitError("429")
         with pytest.raises(GroqRateLimitError):
-            asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+            asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
         pipeline_mocks["session"].commit.assert_not_awaited()
 
 
@@ -356,7 +354,7 @@ class TestReviewAgentError:
         m["guardrail"].return_value = _make_guardrail_result(passed=[_make_issue_with_path()])
 
         # Must not raise
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         assert m["review"].await_count == 2
         assert m["guardrail"].call_count == 1  # only called for ok.py
@@ -379,7 +377,7 @@ class TestReviewAgentError:
         ]
         m["guardrail"].return_value = _make_guardrail_result(passed=[_make_issue_with_path()])
 
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         summary_arg = m["post"].call_args.kwargs.get("summary") or m["post"].call_args.args[3]
         assert "app/broken.py" in summary_arg
@@ -389,7 +387,7 @@ class TestReviewAgentError:
         m = pipeline_mocks
         m["analysis"].side_effect = Exception("bandit subprocess failed")
 
-        asyncio.run(_async_pipeline("owner/repo", 1, "test-job-id"))
+        asyncio.run(async_pipeline("owner/repo", 1, "test-job-id"))
 
         m["review"].assert_not_awaited()
         # post IS called because the summary needs to report the agent error
@@ -402,13 +400,16 @@ class TestReviewAgentError:
 # Celery task wrapper
 # ---------------------------------------------------------------------------
 
+TASK_MODULE = "app.tasks.review_task"
+
+
 class TestCeleryTask:
 
     def test_groq_rate_limit_triggers_self_retry(self):
         """GroqRateLimitError → self.retry(countdown=60) is called."""
         from app.tasks.review_task import process_pr_review
 
-        with patch(f"{PATCH_BASE}.asyncio.run", side_effect=GroqRateLimitError("429")):
+        with patch(f"{TASK_MODULE}.asyncio.run", side_effect=GroqRateLimitError("429")):
             task_mock = MagicMock()
             task_mock.request.retries = 0
             task_mock.max_retries = 3
@@ -426,7 +427,7 @@ class TestCeleryTask:
         from app.tasks.review_task import process_pr_review
 
         gh_exc = GithubException(status=404, data={"message": "Not Found"}, headers={})
-        with patch(f"{PATCH_BASE}.asyncio.run", side_effect=gh_exc):
+        with patch(f"{TASK_MODULE}.asyncio.run", side_effect=gh_exc):
             task_mock = MagicMock()
             task_mock.request.retries = 0
             task_mock.max_retries = 3
@@ -441,7 +442,7 @@ class TestCeleryTask:
         """Generic exceptions are re-raised without calling self.retry."""
         from app.tasks.review_task import process_pr_review
 
-        with patch(f"{PATCH_BASE}.asyncio.run", side_effect=RuntimeError("unexpected")):
+        with patch(f"{TASK_MODULE}.asyncio.run", side_effect=RuntimeError("unexpected")):
             task_mock = MagicMock()
             task_mock.request.retries = 0
             task_mock.max_retries = 3
@@ -454,16 +455,16 @@ class TestCeleryTask:
 
 
 # ---------------------------------------------------------------------------
-# _build_summary
+# build_summary (was _build_summary)
 # ---------------------------------------------------------------------------
 
 class TestBuildSummary:
     """
-    _build_summary signature:
+    build_summary signature:
         (outcomes, overall_verdict, pattern_skipped, agent_skipped, repo_full_name, pr_number)
 
-    overall_verdict is computed by _compute_overall_verdict() and passed in.
-    _build_summary only renders it — it does not compute it.
+    overall_verdict is computed by compute_overall_verdict() and passed in.
+    build_summary only renders it — it does not compute it.
     Both functions are tested independently here.
     """
 
@@ -477,51 +478,51 @@ class TestBuildSummary:
         return FileReviewOutcome(file_diff=fd, guardrail_result=gr)
 
     def test_contains_repo_and_pr_number(self):
-        summary = _build_summary([], VerdictEnum.APPROVE, [], [], "owner/myrepo", 42)
+        summary = build_summary([], VerdictEnum.APPROVE, [], [], "owner/myrepo", 42)
         assert "owner/myrepo" in summary
         assert "42" in summary
 
     def test_shows_correct_issue_counts(self):
         outcomes = [self._outcome(passed_count=3, filtered_count=2)]
-        summary = _build_summary(outcomes, VerdictEnum.APPROVE, [], [], "owner/repo", 1)
+        summary = build_summary(outcomes, VerdictEnum.APPROVE, [], [], "owner/repo", 1)
         assert "3" in summary
         assert "2" in summary
 
     def test_pattern_skipped_files_listed(self):
-        summary = _build_summary([], VerdictEnum.APPROVE, ["package-lock.json", "yarn.lock"], [], "owner/repo", 1)
+        summary = build_summary([], VerdictEnum.APPROVE, ["package-lock.json", "yarn.lock"], [], "owner/repo", 1)
         assert "package-lock.json" in summary
         assert "yarn.lock" in summary
 
     def test_agent_skipped_files_listed(self):
-        summary = _build_summary([], VerdictEnum.APPROVE, [], ["app/broken.py"], "owner/repo", 1)
+        summary = build_summary([], VerdictEnum.APPROVE, [], ["app/broken.py"], "owner/repo", 1)
         assert "app/broken.py" in summary
 
     def test_renders_request_changes_verdict(self):
-        summary = _build_summary([], VerdictEnum.REQUEST_CHANGES, [], [], "owner/repo", 1)
+        summary = build_summary([], VerdictEnum.REQUEST_CHANGES, [], [], "owner/repo", 1)
         assert "REQUEST CHANGES" in summary
 
     def test_renders_approve_verdict(self):
-        summary = _build_summary([], VerdictEnum.APPROVE, [], [], "owner/repo", 1)
+        summary = build_summary([], VerdictEnum.APPROVE, [], [], "owner/repo", 1)
         assert "APPROVE" in summary
 
     def test_renders_comment_verdict(self):
-        summary = _build_summary([], VerdictEnum.COMMENT, [], [], "owner/repo", 1)
+        summary = build_summary([], VerdictEnum.COMMENT, [], [], "owner/repo", 1)
         assert "COMMENT" in summary
 
     def test_confidence_gating_noted(self):
         outcome = self._outcome(confidence=0.4, gated=True)
-        summary = _build_summary([outcome], VerdictEnum.APPROVE, [], [], "owner/repo", 1)
+        summary = build_summary([outcome], VerdictEnum.APPROVE, [], [], "owner/repo", 1)
         assert "confidence gating" in summary.lower()
 
     def test_always_ends_with_guardrail_footer(self):
-        summary = _build_summary([], VerdictEnum.APPROVE, [], [], "owner/repo", 1)
+        summary = build_summary([], VerdictEnum.APPROVE, [], [], "owner/repo", 1)
         assert "Guardrail layer active" in summary
 
 
 class TestComputeOverallVerdict:
     """
-    _compute_overall_verdict() is extracted from _build_summary so the verdict
-    can be stored in the DB separately. Test it independently.
+    compute_overall_verdict() is extracted from the old monolithic file so the
+    verdict can be stored in the DB separately. Test it independently.
     """
 
     def _outcome_with_severity(self, severity: str) -> FileReviewOutcome:
@@ -530,23 +531,23 @@ class TestComputeOverallVerdict:
         return FileReviewOutcome(file_diff=fd, guardrail_result=gr)
 
     def test_high_severity_gives_request_changes(self):
-        assert _compute_overall_verdict([self._outcome_with_severity("HIGH")]) == VerdictEnum.REQUEST_CHANGES
+        assert compute_overall_verdict([self._outcome_with_severity("HIGH")]) == VerdictEnum.REQUEST_CHANGES
 
     def test_medium_severity_gives_comment(self):
-        assert _compute_overall_verdict([self._outcome_with_severity("MEDIUM")]) == VerdictEnum.COMMENT
+        assert compute_overall_verdict([self._outcome_with_severity("MEDIUM")]) == VerdictEnum.COMMENT
 
     def test_low_severity_only_gives_approve(self):
-        assert _compute_overall_verdict([self._outcome_with_severity("LOW")]) == VerdictEnum.APPROVE
+        assert compute_overall_verdict([self._outcome_with_severity("LOW")]) == VerdictEnum.APPROVE
 
     def test_no_issues_gives_approve(self):
         fd = _make_file_diff()
         gr = _make_guardrail_result(passed=[])
         outcome = FileReviewOutcome(file_diff=fd, guardrail_result=gr)
-        assert _compute_overall_verdict([outcome]) == VerdictEnum.APPROVE
+        assert compute_overall_verdict([outcome]) == VerdictEnum.APPROVE
 
     def test_high_wins_over_medium(self):
         outcomes = [
             self._outcome_with_severity("MEDIUM"),
             self._outcome_with_severity("HIGH"),
         ]
-        assert _compute_overall_verdict(outcomes) == VerdictEnum.REQUEST_CHANGES
+        assert compute_overall_verdict(outcomes) == VerdictEnum.REQUEST_CHANGES
