@@ -15,34 +15,37 @@
 - [x] app/tools/registry.py — LanguageAnalyser ABC + @register + get_analyser()
 - [x] app/tools/python/ — PythonAnalyser + bandit, radon, flake8 runners
 - [x] app/tools/javascript/ — JavaScriptAnalyser + eslint runner
-- [x] app/tools/language_router.py
-- [x] app/services/static_analysis.py — registry-driven, zero language logic (46/46 tests passing)
+- [x] app/utils/language.py — Language enum + detect_language()
+- [x] app/services/static_analysis.py — registry-driven (46/46 tests passing)
 - [x] app/utils/groq_client.py — retry logic (46/46 tests passing)
-- [ ] app/schemas/review.py — locked Pydantic schema
-- [ ] app/services/review_agent.py — LangChain AgentExecutor
-- [ ] app/services/guardrail.py + tests
+- [x] app/utils/constants.py — VALID_TOOL_NAMES frozenset
+- [x] app/schemas/review.py — locked schema, both validators
+- [x] app/services/review_agent.py — Groq call + 3-attempt parse loop
+- [x] app/services/guardrail.py — 3 checks + DB logger
+- [x] tests/test_review_agent.py — 5/5 passing (all Groq mocked)
+- [x] tests/test_guardrail.py — 19/19 passing
 - [ ] app/services/github_poster.py
+- [ ] review_task.py — full pipeline wired (Celery task)
 - [ ] PostgreSQL Alembic migrations
 - [ ] React dashboard
 - [ ] Railway + Vercel deployment
 
 ## Current Session
-Session 3 complete (extended): registry/factory pattern for tool routing,
-flake8 added, all tool runners moved into language subpackages.
-46/46 tests passing.
+Session 4 complete: review schema, review agent, guardrail layer, tests.
+24/24 tests passing.
 
 ## Decisions Made This Session
-- Abstract base class + @register decorator pattern chosen over __init__.py
-  convention or auto-discovery. Contract is explicit and enforced at class
-  definition time — ABC raises TypeError on import if run() is missing.
-- Registration triggered by explicit `import app.tools.<language>` at bottom
-  of registry.py — one visible line per language, no magic auto-discovery.
-- Old flat tool files (security_tool.py etc.) deleted — do not coexist with
-  the new language subpackage structure.
-- VALID_TOOL_NAMES in guardrail.py (next session) must include:
-  {"bandit", "radon", "flake8", "eslint"}
-- JS/TS security and complexity gap documented in javascript/__init__.py —
-  ESLint coverage is config-dependent, no universal standalone tools available.
+- Option A (single retry loop in review_file) over separate parse_groq_response()
+  wrapper. Fewer indirection layers, same behaviour.
+- No LangChain AgentExecutor in review_agent.py yet. Static analysis runs before
+  this function is called; findings are passed in as ToolFindings. AgentExecutor
+  is reserved for future multi-step reasoning. Documented in review_agent.py docstring.
+- VALID_TOOL_NAMES defined as frozenset in app/utils/constants.py, not inline in
+  guardrail.py. Single source of truth — adding a new tool requires one edit.
+- FilteredIssueData (dataclass in guardrail.py) named to avoid collision with
+  FilteredIssue ORM model.
+- Added 5th test case (GroqRateLimitError propagation) beyond the 4 specified.
+  The early-exit path was untested and handles a real production failure mode.
 
 ## Blockers
 None
