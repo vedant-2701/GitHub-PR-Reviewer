@@ -30,3 +30,6 @@ venv.bak/
 
 # Logs
 *.log
+
+# PEM files
+*.pem
