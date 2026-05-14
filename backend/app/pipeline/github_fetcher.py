@@ -21,7 +21,7 @@ Error handling:
 import logging
 from typing import List
 
-from github import Github, GithubException, GithubIntegration
+from github import Auth, Github, GithubException, GithubIntegration
 
 from app.config import get_settings
 
@@ -37,10 +37,11 @@ def get_installation_client() -> Github:
         FileNotFoundError  — missing .pem file (fatal, propagates to task).
         GithubException    — bad credentials or no installation found (fatal).
     """
-    integration = GithubIntegration(
-        integration_id=settings.GITHUB_APP_ID,
+    auth = Auth.AppAuth(
+        app_id=settings.GITHUB_APP_ID,
         private_key=settings.GITHUB_PRIVATE_KEY,
     )
+    integration = GithubIntegration(auth=auth)
     installations = integration.get_installations()
     installation = next(iter(installations), None)
     if installation is None:
