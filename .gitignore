@@ -33,3 +33,6 @@ venv.bak/
 
 # PEM files
 *.pem
+
+# DB files
+*.db
