@@ -6,7 +6,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import init_db
 from app.routers import health, logs, reviews, webhook
 from app.utils.logging_config import setup_logging
 
@@ -22,8 +21,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         - Initialise structured logging first (so all subsequent startup
           messages are captured in the correct format).
         - Create database tables.
-          NOTE: Uses create_all for now.
-          TODO: Replace with `alembic upgrade head` when migrations are added.
 
     Shutdown:
         - Log graceful shutdown. Connection pools are closed automatically
@@ -32,7 +29,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging()
     logger.info("ACE Code Review Agent starting up...")
 
-    await init_db()
+    # Alembic manages schema — do not call init_db() / create_all here.
+    # If tables are missing, the first DB operation will raise and surface
+    # the error clearly rather than silently creating an unversioned schema.
 
     logger.info("Startup complete. Ready to receive webhook events.")
     yield
